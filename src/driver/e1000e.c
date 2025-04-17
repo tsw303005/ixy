@@ -2,15 +2,13 @@
 
 #include "log.h"
 #include "e1000e.h"
-#include "e1000_define.h"
-#include "e1000_base.h"
 #include "driver/e1000e_type.h"
 #include "pci.h"
 #include "memory.h"
 
 // allocate for each rx queue, keep state for the receive function
 struct e1000e_rx_queue {
-    volatile union e1000_adv_rx_desc* descriptors;
+    volatile struct e1000_rx_desc* descriptors;
     struct mempool* mempool;
     uint16_t num_entries;
 	// position we are reading from
@@ -21,7 +19,7 @@ struct e1000e_rx_queue {
 
 // allocated for each tx queue, keeps state for the transmit function
 struct e1000e_tx_queue {
-	volatile union e1000_adv_tx_desc* descriptors;
+	volatile struct e1000_tx_desc* descriptors;
 	uint16_t num_entries;
 	// position to clean up descriptors that where sent out by the nic
 	uint16_t clean_index;
@@ -51,7 +49,7 @@ static void disable_interrupts(struct e1000e_device* dev) {
 
 static void disable_interrupt(struct e1000e_device* dev, uint16_t queue_id) {
 	// Clear interrupt mask to stop from interrupts being generated
-	u32 mask = get_reg32(dev->addr, E1000_IMS);
+	uint32_t mask = get_reg32(dev->addr, E1000_IMS);
 	mask &= ~(1 << queue_id);
 	set_reg32(dev->addr, E1000_IMS, mask);
 	clear_interrupt(dev, queue_id);
@@ -64,9 +62,9 @@ static void init_link(struct e1000e_device* dev) {
    // reset PHY, see section 3.2.1.2
    // also, refer to e1000_phy_hw_reset_generic in dpdk e1000_phy.c 
    uint32_t ctrl;
-   ctrl = get_reg32(dev->addr, E1000_CTRL);
-   ctrl |= E1000_CTRL_PHY_RST;
-   set_reg32(dev->addr, E1000_CTRL, ctrl);
+   ctrl = get_reg32(dev->addr, E1000_CTL);
+   ctrl |= E1000_CTL_PHY_RST;
+   set_reg32(dev->addr, E1000_CTL, ctrl);
    usleep(10000);
 
    // link setup, see section 4.6.3.2, the prefered way is that MAC settings are solved by PHY status
@@ -74,12 +72,12 @@ static void init_link(struct e1000e_device* dev) {
    // FRCSPD: force speed
    // FRCDPLX: for duplex
    // ASDE: auto-speed detection enable
-   ctrl = get_reg32(dev->addr, E1000_CTRL);
-   ctrl |= E1000_CTRL_SLU; // enable communication between MAC and PHY
+   ctrl = get_reg32(dev->addr, E1000_CTL);
+   ctrl |= E1000_CTL_SLU; // enable communication between MAC and PHY
 
    // ASDE is not set to 0 in dpdk implementation
-   ctrl &= ~(E1000_CTRL_FRCSPD | E1000_CTRL_FRCDPX);
-   set_reg32(dev->addr, E1000_CTRL, ctrl);
+   ctrl &= ~(E1000_CTL_FRCSPD | E1000_CTL_FRCDPLX);
+   set_reg32(dev->addr, E1000_CTL, ctrl);
 }
 
 uint32_t e1000e_get_link_speed(const struct ixy_device* ixy) {
@@ -90,13 +88,13 @@ uint32_t e1000e_get_link_speed(const struct ixy_device* ixy) {
 		return 0;
 	}
 
-	int  value = (status & E1000_STATUS_SPEED_MASK);
+	int  value = (status & E1000_LINKSPEED) >> 6;
 	switch (value) {
-		case E1000_STATUS_SPEED_1000:
+		case E1000_1000Mbps:
 			return 1000;
-		case E1000_STATUS_SPEED_100:
+		case E1000_100Mbps:
 			return 100;
-		case E1000_STATUS_SPEED_10:
+		case E1000_10Mbps:
 			return 10;
 		default:
 			return 0;
@@ -148,7 +146,7 @@ static void init_rx(struct e1000e_device* dev) {
         */
 
         // allocate a region of memory for receive descriptor
-        uint32_t ring_size_bytes = NUM_RX_QUEUE_ENTRIES * sizeof(union e1000_adv_rx_desc);
+        uint32_t ring_size_bytes = NUM_RX_QUEUE_ENTRIES * sizeof(struct e1000_rx_desc);
         struct dma_memory mem = memory_allocate_dma(ring_size_bytes, true);
         memset(mem.virt, -1, ring_size_bytes);
 
@@ -167,7 +165,7 @@ static void init_rx(struct e1000e_device* dev) {
         struct e1000e_rx_queue* queue = ((struct e1000e_rx_queue*)(dev->rx_queues)) + i;
         queue->num_entries = NUM_RX_QUEUE_ENTRIES;
         queue->rx_index = 0;
-        queue->descriptors = (union e1000_adv_rx_desc*) mem.virt;
+        queue->descriptors = (struct e1000_rx_desc*) mem.virt;
     }
 
     // open receiver
@@ -184,11 +182,11 @@ static void init_tx(struct e1000e_device* dev) {
         • If needed, program the head and tail registers.
     */
     for (uint16_t i = 0; i < dev->ixy.num_tx_queues; i++) {
-        info("initializing tx queeu %d", i);
+        info("initializing tx queue %d", i);
 
-        uint32_t ring_size_bytes = NUM_TX_QUEUE_ENTRIES * sizeof(union e1000_adv_tx_desc);
+        uint32_t ring_size_bytes = NUM_TX_QUEUE_ENTRIES * sizeof(struct e1000_tx_desc);
         struct dma_memory mem = memory_allocate_dma(ring_size_bytes, true);
-        memset(mem.virt, -1, ring_size_bytes);
+        memset(mem.virt, 0, ring_size_bytes);
 
         set_reg32(dev->addr, E1000_TDBAL(i), (uint32_t) (mem.phy & 0xFFFFFFFFull));
 		set_reg32(dev->addr, E1000_TDBAH(i), (uint32_t) (mem.phy >> 32));
@@ -202,7 +200,7 @@ static void init_tx(struct e1000e_device* dev) {
 
         struct e1000e_tx_queue* queue = ((struct e1000e_tx_queue*)(dev->tx_queues)) + i;
 		queue->num_entries = NUM_TX_QUEUE_ENTRIES;
-		queue->descriptors = (union e1000_adv_tx_desc*) mem.virt;
+		queue->descriptors = (struct e1000_tx_desc*) mem.virt;
     }
 
     set_flags32(dev->addr, E1000_TCTL, E1000_TCTL_EN);
@@ -228,8 +226,8 @@ static void reset_and_init(struct e1000e_device* dev) {
 
     // 4.6.2
     // e1000e has no CTRL_RST_MASK like 82599, so use CTRL_RST
-    set_reg32(dev->addr, E1000_CTRL, E1000_CTRL_RST);
-    wait_clear_reg32(dev->addr, E1000_CTRL, E1000_CTRL_RST);
+    set_flags32(dev->addr, E1000_CTL, E1000_CTL_RST);
+    wait_clear_reg32(dev->addr, E1000_CTL, E1000_CTL_RST);
     usleep(10000);
 
     // 4.6.1
@@ -256,6 +254,7 @@ static void reset_and_init(struct e1000e_device* dev) {
 
     // wait for some time for the link to come up
     wait_for_link(dev);
+    info("Done resetting device %s, ctrl_reg=%x", dev->ixy.pci_addr, get_reg32(dev->addr, E1000_CTL)) ;
 }
 
 struct ixy_device* e1000e_init(const char* pci_addr, uint16_t rx_queues, uint16_t tx_queues, int interrupt_timeout) {
@@ -361,16 +360,16 @@ uint32_t e1000e_rx_batch(struct ixy_device* ixy, uint16_t queue_id, struct pkt_b
     uint32_t buf_index, status;
 
     for (buf_index = 0; buf_index < num_bufs; buf_index++) {
-        volatile union e1000_adv_rx_desc* desc_ptr = queue->descriptors + rx_index;
-        status = desc_ptr->wb.upper.status_error;
+        volatile struct e1000_rx_desc* desc_ptr = queue->descriptors + rx_index;
+        status = desc_ptr->status;
         if (status & E1000_RXD_STAT_DD) {
             if (!(status & E1000_RXD_STAT_EOP)) {
 				error("multi-segment packets are not supported - increase buffer size or decrease MTU");
 			}
 
-            union e1000_adv_rx_desc desc = *desc_ptr;
+            struct e1000_rx_desc desc = *desc_ptr;
             struct pkt_buf* buf = (struct pkt_buf*) queue->virtual_addresses[rx_index];
-            buf->size = desc.wb.upper.length;
+            buf->size = desc.length;
 
             struct pkt_buf* new_buf = pkt_buf_alloc(queue->mempool);
             if (!new_buf) {
@@ -380,8 +379,8 @@ uint32_t e1000e_rx_batch(struct ixy_device* ixy, uint16_t queue_id, struct pkt_b
             }
 
             // reset the descriptor
-            desc_ptr->read.pkt_addr = new_buf->buf_addr_phy + offsetof(struct pkt_buf, data);
-            desc_ptr->read.hdr_addr = 0;
+            desc_ptr->addr = (uint64_t)new_buf->buf_addr_phy + offsetof(struct pkt_buf, data);
+            desc_ptr->status = 0;
             queue->virtual_addresses[rx_index] = new_buf;
             bufs[buf_index] = buf;
 
@@ -429,8 +428,8 @@ uint32_t e1000e_tx_batch(struct ixy_device* ixy, uint16_t queue_id, struct pkt_b
             e1000_tx_desc is a leagcy format for descriptor
             e1000_adv_tx_desc supports TSO, checksum offload, VLAN tag
         */
-        volatile union e1000_adv_tx_desc* txd = queue->descriptors + cleanup_to;
-        status = txd->wb.status;
+        volatile struct e1000_tx_desc* txd = queue->descriptors + cleanup_to;
+        status = txd->status;
 
         // hardware sets this flag as soon as it's sent out, we can give back all bufs in the batch back to the mempool
         if (status & E1000_TXD_STAT_DD) {
@@ -459,17 +458,18 @@ uint32_t e1000e_tx_batch(struct ixy_device* ixy, uint16_t queue_id, struct pkt_b
         if (clean_index == next_index) {
             break;
         }
-        struct pkt_buf* buf = bufs[sent];
 
-        queue->virtual_addresses[queue->tx_index] = (void*)buf;
-        volatile union e1000_adv_tx_desc* txd = queue->descriptors + queue->tx_index;
+        struct pkt_buf* buf = bufs[sent];
+        queue->virtual_addresses[queue->tx_index] = (void*) buf;
+        volatile struct e1000_tx_desc* txd = queue->descriptors + queue->tx_index;
         queue->tx_index = next_index;
 
         // NIC reads from here
-        txd->read.buffer_addr = buf->buf_addr_phy + offsetof(struct pkt_buf, data);
+        txd->addr = (uint64_t)buf->buf_addr_phy + offsetof(struct pkt_buf, data);
+        txd->length = (uint16_t)buf->size;
 
         /* Transmit Descriptor bit definitions */
-        txd->read.cmd_type_len = 
+        txd->cmd = 
             E1000_TXD_CMD_EOP | E1000_TXD_CMD_RS;
     }
 
