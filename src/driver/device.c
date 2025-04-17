@@ -1,7 +1,8 @@
 #include <sys/file.h>
 
 #include "device.h"
-#include "driver/ixgbe.h"
+// #include "driver/ixgbe.h"
+#include "driver/e1000e.h"
 #include "driver/virtio.h"
 #include "pci.h"
 
@@ -16,6 +17,8 @@ struct ixy_device* ixy_init(const char* pci_addr, uint16_t rx_queues, uint16_t t
 	uint16_t device_id = read_io16(config, 2);
 	uint32_t class_id = read_io32(config, 8) >> 24;
 	close(config);
+	printf("vendor id: %d, device_id: %d\n", vendor_id, device_id);
+	printf("class id: %d\n", class_id);
 	if (class_id != 2) {
 		error("Device %s is not a NIC", pci_addr);
 	}
@@ -23,6 +26,7 @@ struct ixy_device* ixy_init(const char* pci_addr, uint16_t rx_queues, uint16_t t
 		return virtio_init(pci_addr, rx_queues, tx_queues);
 	} else {
 		// Our best guess is to try ixgbe
-		return ixgbe_init(pci_addr, rx_queues, tx_queues, interrupt_timeout);
+		// return ixgbe_init(pci_addr, rx_queues, tx_queues, interrupt_timeout);
+		return e1000e_init(pci_addr, rx_queues, tx_queues, interrupt_timeout);
 	}
 }

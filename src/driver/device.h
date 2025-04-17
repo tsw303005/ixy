@@ -86,9 +86,9 @@ static inline void set_mac_addr(struct ixy_device* dev, struct mac_address mac) 
 // calls ixy_tx_batch until all packets are queued with busy waiting
 static void ixy_tx_batch_busy_wait(struct ixy_device* dev, uint16_t queue_id, struct pkt_buf* bufs[], uint32_t num_bufs) {
 	uint32_t num_sent = 0;
-	while ((num_sent += ixy_tx_batch(dev, queue_id, bufs + num_sent, num_bufs - num_sent)) != num_bufs) {
-		// busy wait
-	}
+
+	// busy wait
+	while ((num_sent += ixy_tx_batch(dev, queue_id, bufs + num_sent, num_bufs - num_sent)) != num_bufs);
 }
 
 // getters/setters for PCIe memory mapped registers

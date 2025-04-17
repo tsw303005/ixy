@@ -16,21 +16,6 @@
 #include "interrupts.h"
 #include "stats.h"
 
-const char* driver_name = "ixy-ixgbe";
-
-const int MAX_RX_QUEUE_ENTRIES = 4096;
-const int MAX_TX_QUEUE_ENTRIES = 4096;
-
-const int NUM_RX_QUEUE_ENTRIES = 512;
-const int NUM_TX_QUEUE_ENTRIES = 512;
-
-const int PKT_BUF_ENTRY_SIZE = 2048;
-const int MIN_MEMPOOL_ENTRIES = 4096;
-
-const int TX_CLEAN_BATCH = 32;
-
-const uint64_t INTERRUPT_INITIAL_INTERVAL = 1000 * 1000 * 1000;
-
 // allocated for each rx queue, keeps state for the receive function
 struct ixgbe_rx_queue {
 	volatile union ixgbe_adv_rx_desc* descriptors;
